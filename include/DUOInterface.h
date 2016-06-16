@@ -118,7 +118,6 @@ namespace duo
 		void SetCameraSwap(bool val){_swap = val; SetDUOCameraSwap(_duoInstance, val); }
 		void SetLedPWM(double val){_leds = val; SetDUOLedPWM(_duoInstance, val); }
 		
-		bool rectifyCV(const PDUOFrame pFrameData, void *pUserData, cv::Mat &leftR, cv::Mat &rightR);
 		bool ReadYAML(std::string left, std::string right);
 		bool ReadYAMLFromDuo();
 		void WriteCALIB(const openCVYaml& input, std::string prefix);
@@ -133,6 +132,7 @@ namespace duo
 		bool GetOpencvCalib() const { return _opencvCalib; }
 		bool GetRectifyOpencv() const { return _rectifyOpencv; }
 		void SetRectifyOpencv(bool val) { _rectifyOpencv = val; }
+		void SetUseDuoCalib(bool val) { _useDuoCalib = val; }	//Note this has interesting ouput at the moment
 		bool GetUseCUDA() const { return _useCUDA; }
 		void SetUseCUDA(bool val) { _useCUDA = val; }
 		
@@ -172,18 +172,24 @@ namespace duo
 		//Library settings
 		bool	_opencvCalib	= false;	//This indicates if openCV Calib files were found and successfully loaded
 		bool	_duoCalib		= false;	//This indicates if Duo Calib was extracted from the camera
-		bool	_opencvSettings	= false;	//
+		bool	_opencvSettings	= false;	//This indicated that settings were loaded from disk for the class (gain, exp, leds...)
 		bool	_rectifyOpencv	= false;	//This indicates if we should use openCV to rectify images, or inbuilt rectification.
-		bool	_useCUDA		= false;	//
-		bool	_calcDense3D	= false;
+		bool	_useDuoCalib	= false;	//Must be set before startDuo(), decides which calib setting to use for rectification.
+		bool	_useCUDA		= false;	//This indicates if we should use gpu (cuda) to rectify the images
+		bool	_calcDense3D	= false;	//Not implemented yet
 		
 		//General variables
-		bool			_duoInitialized = false;
-		static			DUOInterface* pSingleton;
+		bool			_duoInitialised = false;	//Can be checked to see if init() has been called
+		bool			_rectInitialised = false;	//Can be checked to see if rectification maps have been created.
 		static const	std::string CameraNames[TWO_CAMERAS]; // = {"left","right"};
-		static			std::mutex _mutex;
+		static			std::mutex _mutex;			//Threading lock used within this class
+		
+		//The single instance of this class
+		static			DUOInterface* pSingleton;	
 		
 		//OpenCV specifics
+		void initRect(const openCVYaml& input);
+		bool rectifyCV(const PDUOFrame pFrameData, void *pUserData, cv::Mat &leftR, cv::Mat &rightR);
 		static void on_trackbar(int, void*);
 		void		calib_cv2duo(const openCVYaml& input, DUO_STEREO& output);
 		void		calib_duo2cv(const DUO_STEREO& input, openCVYaml& output);
@@ -193,7 +199,6 @@ namespace duo
 #ifdef WITH_GPU
 		cv::gpu::GpuMat _g_mapL[2], _g_mapR[2];	//stores the rectification maps
 #endif // WITH_GPU
-		
 		
 		//Trackbar variables
 		//Trackbars for Dense3D Settings

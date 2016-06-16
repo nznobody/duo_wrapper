@@ -48,7 +48,7 @@ namespace duo
 
 	bool DUOInterface::initializeDUO()
 	{
-		_duoInitialized = false;
+		_duoInitialised = false;
 		// Check if current resolution, framerate and binning is supported, otherwise error.
 		if (EnumerateResolutions(&_duoResolutionInfo, 1, _width, _height, _binning, _fps))
 		{
@@ -76,34 +76,55 @@ namespace duo
 				if (ReadYAMLFromDuo())
 					_duoCalib = true;
 					
-				//Check for openCV Setting storage
+				//Check for openCV Setting storage.
+				//TODO: Currently doesn't seem to overwrite start up settings?
 				if (ReadINI("cfg//duo_ini.yaml"))
 					_opencvSettings = true;
-				
-				_duoInitialized = true;
+				_duoInitialised = true;
 			}
 			else
 			{
-				_duoInitialized = false;
+				_duoInitialised = false;
 			}
 		}
 		else
 		{
-			_duoInitialized = false;
+			_duoInitialised = false;
 		}
-		return _duoInitialized;
+		return _duoInitialised;
 	}
 	
 	void DUOInterface::startDUO()
 	{
-		if (_duoInitialized)
+		if (_duoInitialised)
 		{
-			// Check who should undistort...
-			if (_rectifyOpencv && _opencvCalib)
+			// Check who should undistort... and how
+			if (_rectifyOpencv)	//Use opencv lib to perform the rectification
 			{
-				std::cout <<  "Using open CV to rectify images" << std::endl;
-				SetDUOUndistort(_duoInstance, false);
+				if (_useDuoCalib && _duoCalib)	//Use openCV with Duo's settings
+				{
+					std::cout <<  "Using open CV to rectify images with Duo's setting" << std::endl;
+					SetDUOUndistort(_duoInstance, false);
+					initRect(_cameraCalibDuo);
+				}
+				else if (!_useDuoCalib && _opencvCalib)
+				{
+					std::cout <<  "Using open CV to rectify images with setting loaded from disk" << std::endl;
+					SetDUOUndistort(_duoInstance, false);
+					initRect(_cameraCalibCV);
+				}
+				else
+				{
+					std::cout << "Error, trying to rectify with invalid settings." << std::endl;
+					throw std::logic_error("Invalid calibration Settings");
+				}
 			}
+			else
+			{
+				std::cout <<  "Using DuoLib to rectify images (uses calib stored on camera)" << std::endl;
+				SetDUOUndistort(_duoInstance, true);
+			}
+			
 			StartDUO(_duoInstance, DUOCallback, NULL);
 			std::cout <<  "DUO Started." << std::endl;
 		}	
@@ -118,13 +139,75 @@ namespace duo
 	}
 	
 	//openCV functions
-	bool DUOInterface::rectifyCV(const PDUOFrame pFrameData, void *pUserData, cv::Mat &leftR, cv::Mat &rightR){
-		if (pFrameData == NULL) return 0;
-		//std::clock_t begin = std::clock();
-			if (_opencvCalib && _rectifyOpencv)
+	void DUOInterface::initRect(const openCVYaml& input) {
+		//Populate rectification maps. Currently hardcoded to the fisheye model. This should be variable
+		//fish eye needs a special case scenario, because D MUST be 1x4. Check this
+		if (input.distortion_coefficients[LEFT_CAM].rows != 1 || input.distortion_coefficients[LEFT_CAM].cols != 4)
 		{
-			//Get images
-			//std::clock_t begin = std::clock();
+			cv::Mat distL = input.distortion_coefficients[LEFT_CAM](cv::Rect(0, 0, 4, 1));
+			cv::Mat distR = input.distortion_coefficients[RIGHT_CAM](cv::Rect(0, 0, 4, 1));
+			cv::fisheye::initUndistortRectifyMap(input.camera_matrix[LEFT_CAM],
+				distL,
+				input.rectification_matrix[LEFT_CAM],
+				input.projection_matrix[LEFT_CAM],
+				input.resolution,
+				CV_32FC1,
+				_mapL[0],
+				_mapL[1]);
+			cv::fisheye::initUndistortRectifyMap(input.camera_matrix[RIGHT_CAM],
+				distR,
+				input.rectification_matrix[RIGHT_CAM],
+				input.projection_matrix[RIGHT_CAM],
+				input.resolution,
+				CV_32FC1,
+				_mapR[0],
+				_mapR[1]);
+		}
+		else
+		{
+			cv::fisheye::initUndistortRectifyMap(input.camera_matrix[LEFT_CAM],
+				input.distortion_coefficients[LEFT_CAM],
+				input.rectification_matrix[LEFT_CAM],
+				input.projection_matrix[LEFT_CAM],
+				input.resolution,
+				CV_32FC1,
+				_mapL[0],
+				_mapL[1]);
+			cv::fisheye::initUndistortRectifyMap(input.camera_matrix[RIGHT_CAM],
+				input.distortion_coefficients[RIGHT_CAM],
+				input.rectification_matrix[RIGHT_CAM],
+				input.projection_matrix[RIGHT_CAM],
+				input.resolution,
+				CV_32FC1,
+				_mapR[0],
+				_mapR[1]);
+		}
+		
+#ifdef WITH_GPU
+		if (GetUseCUDA())//upload GPU Mats
+		{
+			std::cout << "Using GPU, allocating rectification memory\n";
+			for (size_t i = 0; i < 2; i++)
+			{
+				//ensure correct type
+				_mapL[i].convertTo(_mapL[i], CV_32FC1);
+				_mapR[i].convertTo(_mapR[i], CV_32FC1);
+				if (_mapL[i].size != _mapR[i].size)
+					std::cout << "Size issue\n";
+				if (_mapL[i].type() != CV_32FC1)
+					std::cout << "Type issue\n";
+				_g_mapL[i].upload(_mapL[i]);
+				_g_mapR[i].upload(_mapR[i]);
+			}
+		}
+#endif //WITH_GPU
+		_rectInitialised = true;
+	}
+	
+	bool DUOInterface::rectifyCV(const PDUOFrame pFrameData, void *pUserData, cv::Mat &leftR, cv::Mat &rightR) {
+		if (pFrameData == NULL) return 0;
+		if (_rectInitialised && _rectifyOpencv)	//Check if we should be rectifying. Check if we can.
+		{
 			cv::Mat left(cv::Size(WIDTH, HEIGHT), CV_8UC1, pFrameData->leftData);
 			cv::Mat right(cv::Size(WIDTH, HEIGHT), CV_8UC1, pFrameData->rightData);
 			if (GetUseCUDA())//upload GPU Mats
@@ -142,29 +225,21 @@ namespace duo
 			}
 			else
 			{
-			remap(left, leftR, _mapL[0], _mapL[1], cv::INTER_LINEAR);
-			remap(right, rightR, _mapR[0], _mapR[1], cv::INTER_LINEAR);
+				remap(left, leftR, _mapL[0], _mapL[1], cv::INTER_LINEAR);
+				remap(right, rightR, _mapR[0], _mapR[1], cv::INTER_LINEAR);
 			}
-			//std::clock_t end = std::clock();
-			//double elapsed_secs = double(end - begin) / CLOCKS_PER_SEC;
-			//std::cout << elapsed_secs << std::endl;
+			//Should add a potential to write them directly back into pFrameData struct?
 			return true;
-		}
-			else if (_rectifyOpencv)
-		{
-			//Currently not implemented
-			return false;
 		}
 		return false;
 	}
 	
-	bool DUOInterface::ReadYAML(std::string left, std::string right){
-		
+	bool DUOInterface::ReadYAML(std::string left, std::string right) {
 		left.insert(0, "cfg/");	//hardcoded cfg folder
 		right.insert(0, "cfg/");
 		left += ".yaml";	//Hardcoded .yaml extension
 		right += ".yaml";
-		cv::FileStorage fs_l( left, cv::FileStorage::READ);
+		cv::FileStorage fs_l(left, cv::FileStorage::READ);
 		if (fs_l.isOpened())
 		{
 			fs_l["camera_name"] >> _cameraCalibCV.camera_name[LEFT_CAM];
@@ -202,47 +277,11 @@ namespace duo
 			std::cout << "Could not open " << right << std::endl;
 			return false;
 		}
-		std::cout << "Found openCV Rectification settings\n";
-		//Populate maps
-		// Init rectify maps
-		cv::fisheye::initUndistortRectifyMap(_cameraCalibCV.camera_matrix[LEFT_CAM],
-			_cameraCalibCV.distortion_coefficients[LEFT_CAM],
-			_cameraCalibCV.rectification_matrix[LEFT_CAM],
-			_cameraCalibCV.projection_matrix[LEFT_CAM],
-			_cameraCalibCV.resolution,
-			CV_32FC1,
-			_mapL[0],
-			_mapL[1]);
-		cv::fisheye::initUndistortRectifyMap(_cameraCalibCV.camera_matrix[RIGHT_CAM],
-			_cameraCalibCV.distortion_coefficients[RIGHT_CAM],
-			_cameraCalibCV.rectification_matrix[RIGHT_CAM],
-			_cameraCalibCV.projection_matrix[RIGHT_CAM],
-			_cameraCalibCV.resolution,
-			CV_32FC1,
-			_mapR[0],
-			_mapR[1]);
-#ifdef WITH_GPU
-		if (GetUseCUDA())//upload GPU Mats
-		{
-			std::cout << "Using GPU, allocating rectification memory\n";
-			for (size_t i = 0; i < 2; i++)
-			{
-				//ensure correct type
-				_mapL[i].convertTo(_mapL[i], CV_32FC1);
-				_mapR[i].convertTo(_mapR[i], CV_32FC1);
-				if (_mapL[i].size != _mapR[i].size)
-					std::cout << "Size issue\n";
-				if (_mapL[i].type() != CV_32FC1)
-					std::cout << "Type issue\n";
-				_g_mapL[i].upload(_mapL[i]);
-				_g_mapR[i].upload(_mapR[i]);
-			}
-		}
-#endif //WITH_GPU
+		//std::cout << "Loaded openCV Rectification settings\n";
 		return true;
 	}
 	
-	bool DUOInterface::ReadYAMLFromDuo(){
+	bool DUOInterface::ReadYAMLFromDuo() {
 		if (_duoInstance)
 		{
 			if (GetDUOCalibrationPresent(_duoInstance))	//Checks that the duo has a calibration
@@ -250,13 +289,14 @@ namespace duo
 				DUO_STEREO	stereoParam;
 				GetDUOStereoParameters(_duoInstance, &stereoParam);
 				calib_duo2cv(stereoParam, _cameraCalibDuo);	//Converts duo to openCV type
+				//std::cout << "Loaded rectification settings from Duo Camera << std::endl;
 				return true;
 			}
 		}
 		return false;
 	}
 	
-	void DUOInterface::WriteCALIB(const openCVYaml& input, std::string prefix){
+	void DUOInterface::WriteCALIB(const openCVYaml& input, std::string prefix) {
 		std::string prefixR;
 		prefix.insert(0, "cfg/");	//hardcoded cfg folder
 		prefixR = prefix;
@@ -290,7 +330,7 @@ namespace duo
 		fs_r.release();
 	}
 	
-	bool DUOInterface::ReadINI(std::string settings){
+	bool DUOInterface::ReadINI(std::string settings) {
 			//read in previous settings
 		cv::FileStorage fs_s(settings, cv::FileStorage::READ);
 		if (fs_s.isOpened())
@@ -314,7 +354,7 @@ namespace duo
 		return true;
 	}
 	
-	bool DUOInterface::WriteINI(std::string settings){
+	bool DUOInterface::WriteINI(std::string settings) {
 		cv::FileStorage fs_s(settings, cv::FileStorage::WRITE);
 		if (fs_s.isOpened())
 		{
@@ -324,7 +364,7 @@ namespace duo
 			fs_s << "flipH"		<< _flipH;
 			fs_s << "flipV"		<< _flipV;
 			fs_s << "swap"		<< _swap;
-			fs_s << "fps"		<< (int )_fps;
+			fs_s << "fps"		<< (int)_fps;
 			fs_s << "binning"	<< _binning;
 		}
 		else
@@ -394,9 +434,16 @@ namespace duo
 			output.Q[i] = 0;
 		}
 		//Insert zero rotation matrix
-		double temp[] = {	1,0,0,
-							0,1,0,
-							0,0,1 };
+		double temp[] = { 1,
+			 0,
+			 0,
+			0, 
+			1,
+			 0,
+			0,
+			 0,
+			 1
+		};
 		std::copy(temp, temp + 9, output.R);
 		
 	}
@@ -444,7 +491,7 @@ namespace duo
 	void DUOInterface::on_trackbar(int, void*) {
 		DUOInterface&	_duo = DUOInterface::GetInstance();
 		//Camera Settings
-		if (_duo._t_gain != _duo._gain){ _duo._gain = _duo._t_gain; _duo.SetGain(_duo._t_gain);}
+		if (_duo._t_gain != _duo._gain){ _duo._gain = _duo._t_gain; _duo.SetGain(_duo._t_gain); }
 		if (_duo._t_exposure != _duo._exposure){ _duo._exposure = _duo._t_exposure; _duo.SetExposure(_duo._t_exposure); }
 		if (_duo._t_leds != _duo._leds){ _duo._leds = _duo._t_leds; _duo.SetLedPWM(_duo._t_leds); }
 		if (_duo._calcDense3D)
@@ -454,6 +501,3 @@ namespace duo
 	}
 	
 }	// end of duo namespace
-
-
-

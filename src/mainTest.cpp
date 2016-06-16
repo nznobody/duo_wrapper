@@ -80,7 +80,7 @@ int main()
 {
 	duo::DUOInterface& _duo = duo::DUOInterface::GetInstance();
 	{ //Test rectification
-		_duo.SetRectifyOpencv(true);
+		//_duo.SetRectifyOpencv(true);
 		//_duo.SetOpencvCalib(true);
 		
 		//Test CUDA
@@ -100,8 +100,7 @@ int main()
 			auto callbackFram = std::bind(&CallBacker::TestBack, &test, std::placeholders::_1, std::placeholders::_2);
 			duo::DUOInterface::_extcallback = callbackFram;
 		}
-		//_duo.ReadYAMLFromDuo();
-		//_duo.ReadYAMLFromDuo();
+		_duo.SetUseDuoCalib(true);
 		_duo.SetLedPWM(85);
 		_duo.EnableCVSettings();
 		_duo.startDUO();
