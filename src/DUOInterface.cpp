@@ -159,6 +159,7 @@ namespace duo
 	}
 	
 	bool DUOInterface::ReadYAML(std::string left, std::string right){
+		
 		left.insert(0, "cfg/");	//hardcoded cfg folder
 		right.insert(0, "cfg/");
 		left += ".yaml";	//Hardcoded .yaml extension
@@ -184,7 +185,7 @@ namespace duo
 			return false;
 		}
 		//Do RHS
-		cv::FileStorage fs_r(left, cv::FileStorage::READ);
+		cv::FileStorage fs_r(right, cv::FileStorage::READ);
 		if (fs_r.isOpened())
 		{
 			fs_r["camera_name"] >> _cameraCalibCV.camera_name[RIGHT_CAM];
@@ -242,7 +243,7 @@ namespace duo
 	}
 	
 	bool DUOInterface::ReadYAMLFromDuo(){
-		if (_duoInitialized)
+		if (_duoInstance)
 		{
 			if (GetDUOCalibrationPresent(_duoInstance))	//Checks that the duo has a calibration
 			{
@@ -253,6 +254,40 @@ namespace duo
 			}
 		}
 		return false;
+	}
+	
+	void DUOInterface::WriteCALIB(const openCVYaml& input, std::string prefix){
+		std::string prefixR;
+		prefix.insert(0, "cfg/");	//hardcoded cfg folder
+		prefixR = prefix;
+		prefix += input.camera_name[LEFT_CAM] + ".yaml";
+		prefixR += input.camera_name[RIGHT_CAM] + ".yaml";
+		cv::FileStorage fs_l(prefix, cv::FileStorage::WRITE);
+		if (fs_l.isOpened())
+		{
+			fs_l << "camera_name" << input.camera_name[LEFT_CAM]
+				<<	"image_width" << input.resolution.width
+				<<	"image_height" << input.resolution.height
+				<<	"distortion_model" << input.distortion_model
+				<<	"camera_matrix"	<< input.camera_matrix[LEFT_CAM]
+				<<	"distortion_coefficients" << input.distortion_coefficients[LEFT_CAM]
+				<<	"rectification_matrix" << input.rectification_matrix[LEFT_CAM]
+				<<	"projection_matrix" << input.projection_matrix[LEFT_CAM];
+		}
+		fs_l.release();
+		cv::FileStorage fs_r(prefixR, cv::FileStorage::WRITE);
+		if (fs_r.isOpened())
+		{
+			fs_r << "camera_name" << input.camera_name[RIGHT_CAM]
+				<<	"image_width" << input.resolution.width
+				<<	"image_height" << input.resolution.height
+				<<	"distortion_model" << input.distortion_model
+				<<	"camera_matrix"	<< input.camera_matrix[RIGHT_CAM]
+				<<	"distortion_coefficients" << input.distortion_coefficients[RIGHT_CAM]
+				<<	"rectification_matrix" << input.rectification_matrix[RIGHT_CAM]
+				<<	"projection_matrix" << input.projection_matrix[RIGHT_CAM];
+		}
+		fs_r.release();
 	}
 	
 	bool DUOInterface::ReadINI(std::string settings){
@@ -419,3 +454,6 @@ namespace duo
 	}
 	
 }	// end of duo namespace
+
+
+

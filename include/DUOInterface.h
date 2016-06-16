@@ -58,6 +58,7 @@ namespace duo
 		static const int LEFT_CAM 		= 0;
 		static const int RIGHT_CAM		= 1;
 		static const std::string CAM_NAME;
+		struct openCVYaml;
 		
 		/*
 		* 	@brief
@@ -120,6 +121,7 @@ namespace duo
 		bool rectifyCV(const PDUOFrame pFrameData, void *pUserData, cv::Mat &leftR, cv::Mat &rightR);
 		bool ReadYAML(std::string left, std::string right);
 		bool ReadYAMLFromDuo();
+		void WriteCALIB(const openCVYaml& input, std::string prefix);
 		bool ReadINI(std::string settings);
 		bool WriteINI(std::string settings);
 		void EnableCVSettings();
