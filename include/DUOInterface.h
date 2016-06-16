@@ -119,20 +119,10 @@ namespace duo
 		
 		bool rectifyCV(const PDUOFrame pFrameData, void *pUserData, cv::Mat &leftR, cv::Mat &rightR);
 		bool ReadYAML(std::string left, std::string right);
+		bool ReadYAMLFromDuo();
 		bool ReadINI(std::string settings);
 		bool WriteINI(std::string settings);
 		void EnableCVSettings();
-		//Camera characteristics storage
-		struct openCVYaml{
-			std::string	camera_name[TWO_CAMERAS];
-			cv::Size resolution;
-			std::string distortion_model;
-			cv::Mat camera_matrix[TWO_CAMERAS];				//K
-			cv::Mat distortion_coefficients[TWO_CAMERAS];	//D
-			cv::Mat rectification_matrix[TWO_CAMERAS];		//R
-			cv::Mat projection_matrix[TWO_CAMERAS];			//P
-		};
-		cv::Mat _dispN;
 		
 		//This is a callback function that will get passed the PDUOFrame when it is ready
 		static std::function<void(const PDUOFrame pFrameData, void *pUserData)>	_extcallback;
@@ -143,6 +133,18 @@ namespace duo
 		void SetRectifyOpencv(bool val) { _rectifyOpencv = val; }
 		bool GetUseCUDA() const { return _useCUDA; }
 		void SetUseCUDA(bool val) { _useCUDA = val; }
+		
+		//Public variables
+		//Camera characteristics storage (modeled off http://docs.ros.org/api/sensor_msgs/html/msg/CameraInfo.html)
+		struct openCVYaml {
+			std::string	camera_name[TWO_CAMERAS];
+			cv::Size resolution;
+			std::string distortion_model = "plumb_bob";
+			cv::Mat camera_matrix[TWO_CAMERAS] = { cv::Mat::zeros(3, 3, CV_64FC1), cv::Mat::zeros(3, 3, CV_64FC1) };			//K 3x3
+			cv::Mat distortion_coefficients[TWO_CAMERAS] = { cv::Mat::zeros(1, 5, CV_64FC1), cv::Mat::zeros(1, 5, CV_64FC1) };	//D 1x5
+			cv::Mat rectification_matrix[TWO_CAMERAS] = { cv::Mat::zeros(3, 3, CV_64FC1), cv::Mat::zeros(3, 3, CV_64FC1) };		//R 3x3
+			cv::Mat projection_matrix[TWO_CAMERAS] = { cv::Mat::zeros(3, 4, CV_64FC1), cv::Mat::zeros(3, 4, CV_64FC1) };		//P 3x4
+		};
 		
 	protected:
 
@@ -167,6 +169,7 @@ namespace duo
 		
 		//Library settings
 		bool	_opencvCalib	= false;	//This indicates if openCV Calib files were found and successfully loaded
+		bool	_duoCalib		= false;	//This indicates if Duo Calib was extracted from the camera
 		bool	_opencvSettings	= false;	//
 		bool	_rectifyOpencv	= false;	//This indicates if we should use openCV to rectify images, or inbuilt rectification.
 		bool	_useCUDA		= false;	//
@@ -180,7 +183,10 @@ namespace duo
 		
 		//OpenCV specifics
 		static void on_trackbar(int, void*);
-		std::shared_ptr<openCVYaml>	_cameraCalibCV;
+		void		calib_cv2duo(const openCVYaml& input, DUO_STEREO& output);
+		void		calib_duo2cv(const DUO_STEREO& input, openCVYaml& output);
+		openCVYaml	_cameraCalibCV;
+		openCVYaml	_cameraCalibDuo;
 		cv::Mat _mapL[2], _mapR[2];	//stores the rectification maps
 #ifdef WITH_GPU
 		cv::gpu::GpuMat _g_mapL[2], _g_mapR[2];	//stores the rectification maps
