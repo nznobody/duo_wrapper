@@ -39,7 +39,7 @@ void t_imshow()
 		 //after the wait, we own the lock.
 		if (!left.empty())
 		{
-			cv::putText(left, cv::format("Average FPS=%d", (int )fps), cv::Point(30, 30), cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(255, 255, 255));
+			cv::putText(left, cv::format("Average FPS=%d", (int)fps), cv::Point(30, 30), cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(255, 255, 255));
 			imshow("Duo Left", left);
 		}
 		if (!dispN.empty())
@@ -56,59 +56,34 @@ void t_imshow()
 	}
 }
 
-class CallBacker
-{
-public:
-	CallBacker() {}
-	~CallBacker() {}
-	void TestBack(const PDUOFrame pFrameData, void *pUserData)
-	{
-		//std::shared_ptr<duo::DUOInterface> _duo = duo::DUOInterface::GetInstance();
-		std::lock_guard<std::mutex> lk(_imLock);
-		left = cv::Mat(cv::Size(WIDTH, HEIGHT), CV_8UC1, pFrameData->leftData);
-		right = cv::Mat(cv::Size(WIDTH, HEIGHT), CV_8UC1, pFrameData->rightData);
 
-		ready = true;
+void TestBack(const PDUOFrame pFrameData, void *pUserData)
+{
+	//std::shared_ptr<duo::DUOInterface> _duo = duo::DUOInterface::GetInstance();
+	std::lock_guard<std::mutex> lk(_imLock);
+	left = cv::Mat(cv::Size(WIDTH, HEIGHT), CV_8UC1, pFrameData->leftData);
+	right = cv::Mat(cv::Size(WIDTH, HEIGHT), CV_8UC1, pFrameData->rightData);
+
+	ready = true;
 		
-		_newImg.notify_all();
-	}
-private:
-	
-};
+	_newImg.notify_all();
+}
 
 int main()
 {
 	std::shared_ptr<duo::DUOInterface> _duo = duo::DUOInterface::GetInstance();
-	{ //Test rectification
-		//_duo.SetRectifyOpencv(true);
-		//_duo->SetOpencvCalib(true);
-		
-		//Test CUDA
-		_duo->SetUseCUDA(true);
-		
-		//TestHWBackgroundSubtraction
-		//_duo->SetHWBackground(true);
-		
-		//Test openCV Stereo
-		//_duo->SetOpencvStereo(true);
-	}
-	
 	if (_duo->initializeDUO())
 	{
-		{ //Test member callback
-			CallBacker test;
-			auto callbackFram = std::bind(&CallBacker::TestBack, &test, std::placeholders::_1, std::placeholders::_2);
-			duo::DUOInterface::_extcallback = callbackFram;
-		}
-		_duo->SetUseDuoCalib(true);
-		_duo->SetLedPWM(85);
-		_duo->EnableCVSettings();
+		duo::DUOInterface::_extcallback = TestBack;
+		_duo->SetUseDuoCalib(false);
+		_duo->SetRectifyOpencv(true);
+		_duo->SetUseCUDA(true);
 		_duo->startDUO();
 	}
 
 	//Start thread that shows image
 	std::thread worker(t_imshow);
 	worker.join();
-	
 	_duo->shutdownDUO();
+	return 0;
 }

@@ -43,6 +43,29 @@
 
 namespace duo
 {
+	class openCVYaml {
+	public:
+		openCVYaml(void) {
+			distortion_model = "plumb_bob";
+			camera_matrix[0] = cv::Mat::zeros(3, 3, CV_64FC1);
+			camera_matrix[1] = cv::Mat::zeros(3, 3, CV_64FC1);
+			distortion_coefficients[0] = cv::Mat::zeros(1, 5, CV_64FC1);
+			distortion_coefficients[1] = cv::Mat::zeros(1, 5, CV_64FC1);
+			rectification_matrix[0] = cv::Mat::zeros(3, 3, CV_64FC1);
+			rectification_matrix[1] = cv::Mat::zeros(3, 3, CV_64FC1);
+			projection_matrix[0] = cv::Mat::zeros(3, 4, CV_64FC1);
+			projection_matrix[1] = cv::Mat::zeros(3, 4, CV_64FC1);
+		}
+		~openCVYaml(void) {}
+		std::string	camera_name[2];
+		cv::Size resolution;
+		std::string distortion_model;
+		cv::Mat camera_matrix[2];			//K 3x3
+		cv::Mat distortion_coefficients[2];	//D 1x5
+		cv::Mat rectification_matrix[2];	//R 3x3
+		cv::Mat projection_matrix[2];		//P 3x4
+	};
+	
 	class DUOInterface
 	{
 	public:
@@ -58,7 +81,6 @@ namespace duo
 		static const int LEFT_CAM 		= 0;
 		static const int RIGHT_CAM		= 1;
 		static const std::string CAM_NAME;
-		class openCVYaml;
 		
 		friend void CALLBACK DUOCallback(const PDUOFrame pFrameData, void *pUserData);
 		
@@ -96,32 +118,10 @@ namespace duo
 		void SetUseDuoCalib(bool val) { _useDuoCalib = val; }	//Note this has interesting ouput at the moment
 		bool GetUseCUDA() const { return _useCUDA; }
 		void SetUseCUDA(bool val) { _useCUDA = val; }
-		openCVYaml GetCurrentCalib();	//Safe interface to get the calib settings being used. mainly to populate ROS CamInfo MSG
+		//openCVYaml GetCurrentCalib();	//Safe interface to get the calib settings being used. mainly to populate ROS CamInfo MSG
 
 		//Public variables
 		//Camera characteristics storage (modeled off http://docs.ros.org/api/sensor_msgs/html/msg/CameraInfo.html)
-		class openCVYaml {
-		public:
-			openCVYaml(void){
-				distortion_model = "plumb_bob";
-				camera_matrix[0] = cv::Mat::zeros(3, 3, CV_64FC1);
-				camera_matrix[1] = cv::Mat::zeros(3, 3, CV_64FC1);
-				distortion_coefficients[0] = cv::Mat::zeros(1, 5, CV_64FC1);
-				distortion_coefficients[1] = cv::Mat::zeros(1, 5, CV_64FC1);
-				rectification_matrix[0] = cv::Mat::zeros(3, 3, CV_64FC1);
-				rectification_matrix[1] = cv::Mat::zeros(3, 3, CV_64FC1);
-				projection_matrix[0] = cv::Mat::zeros(3, 4, CV_64FC1);
-				projection_matrix[1] = cv::Mat::zeros(3, 4, CV_64FC1);
-			}
-			~openCVYaml(void) {}
-			std::string	camera_name[TWO_CAMERAS];
-			cv::Size resolution;
-			std::string distortion_model;
-			cv::Mat camera_matrix[TWO_CAMERAS];			//K 3x3
-			cv::Mat distortion_coefficients[TWO_CAMERAS];	//D 1x5
-			cv::Mat rectification_matrix[TWO_CAMERAS];		//R 3x3
-			cv::Mat projection_matrix[TWO_CAMERAS];		//P 3x4
-		};
 		
 	protected:
 
@@ -154,19 +154,19 @@ namespace duo
 		bool	_calcDense3D	= false;	//Not implemented yet
 		
 		//General variables
+		std::mutex		_mutex;			//Threading lock used within this class
 		bool			_duoInitialised = false;	//Can be checked to see if init() has been called
 		bool			_rectInitialised = false;	//Can be checked to see if rectification maps have been created.
 		static const	std::string CameraNames[TWO_CAMERAS]; // = {"left","right"};
-		static			std::mutex _mutex;			//Threading lock used within this class
 		
 		//OpenCV specifics
-		void initRect(const openCVYaml& input);
+		void initRect(const std::shared_ptr<openCVYaml> input);
 		bool rectifyCV(const PDUOFrame pFrameData, void *pUserData, cv::Mat &leftR, cv::Mat &rightR);
 		static void on_trackbar(int, void*);
-		void		calib_cv2duo(const openCVYaml& input, DUO_STEREO& output);
-		void		calib_duo2cv(const DUO_STEREO& input, openCVYaml& output);
-		openCVYaml	_cameraCalibCV;
-		openCVYaml	_cameraCalibDuo;
+		void		calib_cv2duo(const std::shared_ptr<openCVYaml> input, DUO_STEREO& output);
+		void		calib_duo2cv(const DUO_STEREO& input, std::shared_ptr<openCVYaml> output);
+		std::shared_ptr<openCVYaml>	_cameraCalibCV;
+		std::shared_ptr<openCVYaml>	_cameraCalibDuo;
 		cv::Mat _mapL[2], _mapR[2];	//stores the rectification maps
 #ifdef WITH_GPU
 		cv::gpu::GpuMat _g_mapL[2], _g_mapR[2];	//stores the rectification maps

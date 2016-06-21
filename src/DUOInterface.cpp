@@ -12,26 +12,28 @@ namespace duo
 	const std::string DUOInterface::CAM_NAME = "duo";
 	
 	//Static variables
-	std::mutex DUOInterface::_mutex;
 	std::function<void(const PDUOFrame pFrameData, void *pUserData)>	DUOInterface::_extcallback = NULL;
 	
 	DUOInterface::DUOInterface(void)
 	{
 		std::cout << "New instance of duo::DUOInterface\n";
+		_cameraCalibCV = std::make_shared<openCVYaml>();
+		_cameraCalibDuo = std::make_shared<openCVYaml>();
 	}
 
 	DUOInterface::~DUOInterface(void)
 	{
-		if (_duoInstance)
-			shutdownDUO();
+		std::lock_guard<std::mutex> lck(_mutex);
+		StopDUO(_duoInstance);	//Assuming DUOLib handles null pointers
+		CloseDUO(_duoInstance);
 		std::cout << "Instance of duo::DUOInterface destructed\n";
 	}
 	
 	void CALLBACK DUOCallback(const PDUOFrame pFrameData, void *pUserData)
 	{
 		if (pFrameData == NULL) return;	//Handle this better by restarting the duo maybe?
-		std::lock_guard<std::mutex> lck(DUOInterface::_mutex);
 		std::shared_ptr<DUOInterface> _duo 	= DUOInterface::GetInstance(); 	// Using singleton to access DUOInterface, is it needed?
+		std::lock_guard<std::mutex> lck(_duo->_mutex);
 		
 		//Check if rectification is needed, should be done outside of callback...
 		if (_duo->_rectifyOpencv)
@@ -138,52 +140,60 @@ namespace duo
 
 	void DUOInterface::shutdownDUO()
 	{
+		std::lock_guard<std::mutex> lck(_mutex);
 		std::cout << "Shutting down DUO Camera." << std::endl;
 		StopDUO(_duoInstance);
 		//Save settings
 		WriteINI("cfg/duo_ini.yaml");
+		//Clear GPU memory
+		for (size_t i = 0; i < 2; i++)
+		{
+			_g_mapL[i].release();
+			_g_mapR[i].release();
+		}
+		
 	}
 	
 	//openCV functions
-	void DUOInterface::initRect(const openCVYaml& input) {
+	void DUOInterface::initRect(const std::shared_ptr<openCVYaml> input) {
 		//Populate rectification maps. Currently hardcoded to the fisheye model. This should be variable
 		//fish eye needs a special case scenario, because D MUST be 1x4. Check this
-		if (input.distortion_coefficients[LEFT_CAM].rows != 1 || input.distortion_coefficients[LEFT_CAM].cols != 4)
+		if (input->distortion_coefficients[LEFT_CAM].rows != 1 || input->distortion_coefficients[LEFT_CAM].cols != 4)
 		{
-			cv::Mat distL = input.distortion_coefficients[LEFT_CAM](cv::Rect(0, 0, 4, 1));
-			cv::Mat distR = input.distortion_coefficients[RIGHT_CAM](cv::Rect(0, 0, 4, 1));
-			cv::fisheye::initUndistortRectifyMap(input.camera_matrix[LEFT_CAM],
+			cv::Mat distL = input->distortion_coefficients[LEFT_CAM](cv::Rect(0, 0, 4, 1));
+			cv::Mat distR = input->distortion_coefficients[RIGHT_CAM](cv::Rect(0, 0, 4, 1));
+			cv::fisheye::initUndistortRectifyMap(input->camera_matrix[LEFT_CAM],
 				distL,
-				input.rectification_matrix[LEFT_CAM],
-				input.projection_matrix[LEFT_CAM],
-				input.resolution,
+				input->rectification_matrix[LEFT_CAM],
+				input->projection_matrix[LEFT_CAM],
+				input->resolution,
 				CV_32FC1,
 				_mapL[0],
 				_mapL[1]);
-			cv::fisheye::initUndistortRectifyMap(input.camera_matrix[RIGHT_CAM],
+			cv::fisheye::initUndistortRectifyMap(input->camera_matrix[RIGHT_CAM],
 				distR,
-				input.rectification_matrix[RIGHT_CAM],
-				input.projection_matrix[RIGHT_CAM],
-				input.resolution,
+				input->rectification_matrix[RIGHT_CAM],
+				input->projection_matrix[RIGHT_CAM],
+				input->resolution,
 				CV_32FC1,
 				_mapR[0],
 				_mapR[1]);
 		}
 		else
 		{
-			cv::fisheye::initUndistortRectifyMap(input.camera_matrix[LEFT_CAM],
-				input.distortion_coefficients[LEFT_CAM],
-				input.rectification_matrix[LEFT_CAM],
-				input.projection_matrix[LEFT_CAM],
-				input.resolution,
+			cv::fisheye::initUndistortRectifyMap(input->camera_matrix[LEFT_CAM],
+				input->distortion_coefficients[LEFT_CAM],
+				input->rectification_matrix[LEFT_CAM],
+				input->projection_matrix[LEFT_CAM],
+				input->resolution,
 				CV_32FC1,
 				_mapL[0],
 				_mapL[1]);
-			cv::fisheye::initUndistortRectifyMap(input.camera_matrix[RIGHT_CAM],
-				input.distortion_coefficients[RIGHT_CAM],
-				input.rectification_matrix[RIGHT_CAM],
-				input.projection_matrix[RIGHT_CAM],
-				input.resolution,
+			cv::fisheye::initUndistortRectifyMap(input->camera_matrix[RIGHT_CAM],
+				input->distortion_coefficients[RIGHT_CAM],
+				input->rectification_matrix[RIGHT_CAM],
+				input->projection_matrix[RIGHT_CAM],
+				input->resolution,
 				CV_32FC1,
 				_mapR[0],
 				_mapR[1]);
@@ -248,22 +258,22 @@ namespace duo
 		cv::FileStorage fs_l(left, cv::FileStorage::READ);
 		if (fs_l.isOpened())
 		{
-			fs_l["camera_name"] >> _cameraCalibCV.camera_name[LEFT_CAM];
-			fs_l["image_width"] >> _cameraCalibCV.resolution.width;
-			fs_l["image_height"] >> _cameraCalibCV.resolution.height;
-			fs_l["distortion_model"] >> _cameraCalibCV.distortion_model;
+			fs_l["camera_name"] >> _cameraCalibCV->camera_name[LEFT_CAM];
+			fs_l["image_width"] >> _cameraCalibCV->resolution.width;
+			fs_l["image_height"] >> _cameraCalibCV->resolution.height;
+			fs_l["distortion_model"] >> _cameraCalibCV->distortion_model;
 			//Parameters
 			//Special case handle for varibale count of D parameters
 			cv::Mat temp_D(cv::Mat::zeros(1, 5, CV_64FC1));
-			fs_l["camera_matrix"] >> _cameraCalibCV.camera_matrix[LEFT_CAM];						//K
+			fs_l["camera_matrix"] >> _cameraCalibCV->camera_matrix[LEFT_CAM];						//K
 			fs_l["distortion_coefficients"] >> temp_D;												//D
-			temp_D.copyTo(_cameraCalibCV.distortion_coefficients[LEFT_CAM](cv::Rect(0, 0, temp_D.cols, temp_D.rows)));
+			temp_D.copyTo(_cameraCalibCV->distortion_coefficients[LEFT_CAM](cv::Rect(0, 0, temp_D.cols, temp_D.rows)));
 			if (temp_D.total() == 4)
 			{
-				_cameraCalibCV.distortion_coefficients[LEFT_CAM].at<double>(4) = 0; //Manually set 5th spot to zero
+				_cameraCalibCV->distortion_coefficients[LEFT_CAM].at<double>(4) = 0; //Manually set 5th spot to zero
 			}
-			fs_l["rectification_matrix"] >> _cameraCalibCV.rectification_matrix[LEFT_CAM];			//R
-			fs_l["projection_matrix"] >> _cameraCalibCV.projection_matrix[LEFT_CAM];				//P
+			fs_l["rectification_matrix"] >> _cameraCalibCV->rectification_matrix[LEFT_CAM];			//R
+			fs_l["projection_matrix"] >> _cameraCalibCV->projection_matrix[LEFT_CAM];				//P
 			//TODO: Implement check to see if read properly
 			fs_l.release();
 		}
@@ -276,18 +286,18 @@ namespace duo
 		cv::FileStorage fs_r(right, cv::FileStorage::READ);
 		if (fs_r.isOpened())
 		{
-			fs_r["camera_name"] >> _cameraCalibCV.camera_name[RIGHT_CAM];
+			fs_r["camera_name"] >> _cameraCalibCV->camera_name[RIGHT_CAM];
 			//Parameters
 			cv::Mat temp_D(cv::Mat::zeros(1, 5, CV_64FC1));
-			fs_r["camera_matrix"] >> _cameraCalibCV.camera_matrix[RIGHT_CAM];					//K
+			fs_r["camera_matrix"] >> _cameraCalibCV->camera_matrix[RIGHT_CAM];					//K
 			fs_r["distortion_coefficients"] >> temp_D;											//D
-			temp_D.copyTo(_cameraCalibCV.distortion_coefficients[RIGHT_CAM](cv::Rect(0, 0, temp_D.cols, temp_D.rows)));
+			temp_D.copyTo(_cameraCalibCV->distortion_coefficients[RIGHT_CAM](cv::Rect(0, 0, temp_D.cols, temp_D.rows)));
 			if (temp_D.total() == 4)
 			{
-				_cameraCalibCV.distortion_coefficients[RIGHT_CAM].at<double>(4) = 0;	//Manually set 5th spot to zero
+				_cameraCalibCV->distortion_coefficients[RIGHT_CAM].at<double>(4) = 0;	//Manually set 5th spot to zero
 			}
-			fs_r["rectification_matrix"] >> _cameraCalibCV.rectification_matrix[RIGHT_CAM];		//R
-			fs_r["projection_matrix"] >> _cameraCalibCV.projection_matrix[RIGHT_CAM];			//P
+			fs_r["rectification_matrix"] >> _cameraCalibCV->rectification_matrix[RIGHT_CAM];		//R
+			fs_r["projection_matrix"] >> _cameraCalibCV->projection_matrix[RIGHT_CAM];			//P
 			//TODO: Implement check to see if read properly
 			fs_r.release();
 		}
@@ -413,29 +423,29 @@ namespace duo
 		}
 	}
 	
-	DUOInterface::openCVYaml DUOInterface::GetCurrentCalib(){
-		if (_useDuoCalib)
-			return _cameraCalibDuo;
-		else
-			return _cameraCalibCV;
-	}
-	
-	void DUOInterface::calib_cv2duo(const openCVYaml& input, DUO_STEREO& output) {
+//	DUOInterface::openCVYaml DUOInterface::GetCurrentCalib(){
+//		if (_useDuoCalib)
+//			return _cameraCalibDuo;
+//		else
+//			return _cameraCalibCV;
+//	}
+//	
+	void DUOInterface::calib_cv2duo(const std::shared_ptr<openCVYaml> input, DUO_STEREO& output) {
 		for (size_t i = 0; i < 9; i++)
 		{
-			output.M1[i] = input.camera_matrix[LEFT_CAM].at<double>(i);
-			output.M2[i] = input.camera_matrix[RIGHT_CAM].at<double>(i);
+			output.M1[i] = input->camera_matrix[LEFT_CAM].at<double>(i);
+			output.M2[i] = input->camera_matrix[RIGHT_CAM].at<double>(i);
 			//output.R[i]; This is handled as a special case as 0 rotation matrix
-			output.R1[i] = input.rectification_matrix[LEFT_CAM].at<double>(i);
-			output.R2[i] = input.rectification_matrix[RIGHT_CAM].at<double>(i);
+			output.R1[i] = input->rectification_matrix[LEFT_CAM].at<double>(i);
+			output.R2[i] = input->rectification_matrix[RIGHT_CAM].at<double>(i);
 		}
 		//TODO: Learn how to handle translating from 4 <-> distortion coeffecients...
 		// http://docs.opencv.org/master/db/d58/group__calib3d__fisheye.html#gsc.tab=0 Fisheye has 4 ...
 		// http://docs.opencv.org/2.4/doc/tutorials/calib3d/camera_calibration/camera_calibration.html Normal has 5 ...
 		for (size_t i = 0; i < 4; i++)	//Play it safe and assume only 4 exist
 		{
-			output.D1[i] = input.distortion_coefficients[LEFT_CAM].at<double>(i);
-			output.D2[i] = input.distortion_coefficients[RIGHT_CAM].at<double>(i);
+			output.D1[i] = input->distortion_coefficients[LEFT_CAM].at<double>(i);
+			output.D2[i] = input->distortion_coefficients[RIGHT_CAM].at<double>(i);
 		}
 		//handle the 5th, seems correct with opencv documentation
 		output.D1[4] = output.D2[4] = 0.0;
@@ -443,15 +453,15 @@ namespace duo
 		//P incorporates T in opencv
 		for (size_t i = 0; i < 12; i++)
 		{
-			output.P1[i] = input.projection_matrix[LEFT_CAM].at<double>(i);
-			output.P2[i] = input.projection_matrix[RIGHT_CAM].at<double>(i);
+			output.P1[i] = input->projection_matrix[LEFT_CAM].at<double>(i);
+			output.P2[i] = input->projection_matrix[RIGHT_CAM].at<double>(i);
 		}
 		//Needs to be extracted from openCV's P last colum...
 		// Duo stores this as the distance in mm between cameras (Dx). the P vector stores this as Tx where
 		// "Tx = -fx' * B, where B is the baseline between the cameras" aka B = Dx
 		// Note, potentially Duo stores values in negative...
-		output.T[0] = input.projection_matrix[RIGHT_CAM].at<double>(3) / -input.projection_matrix[RIGHT_CAM].at<double>(0); // Dx = Tx / -fx
-		output.T[1] = input.projection_matrix[RIGHT_CAM].at<double>(7) / -input.projection_matrix[RIGHT_CAM].at<double>(5); // Dy = Ty / -fy
+		output.T[0] = input->projection_matrix[RIGHT_CAM].at<double>(3) / -input->projection_matrix[RIGHT_CAM].at<double>(0); // Dx = Tx / -fx
+		output.T[1] = input->projection_matrix[RIGHT_CAM].at<double>(7) / -input->projection_matrix[RIGHT_CAM].at<double>(5); // Dy = Ty / -fy
 		output.T[2] = 0.0;
 		// Currently unhandled...
 		// http://stackoverflow.com/questions/27374970/q-matrix-for-the-reprojectimageto3d-function-in-opencv
@@ -474,43 +484,43 @@ namespace duo
 		
 	}
 	
-	void DUOInterface::calib_duo2cv(const DUO_STEREO& input, openCVYaml& output) {
+	void DUOInterface::calib_duo2cv(const DUO_STEREO& input, std::shared_ptr<openCVYaml> output) {
 		//Constant data
 		size_t width = 0, height = 0;
 		GetDUOFrameDimension(_duoInstance, &width, &height);
 		//Convert to openCV Format
-		output.camera_name[LEFT_CAM] = (CAM_NAME + "_" + CameraNames[LEFT_CAM]);
-		output.camera_name[RIGHT_CAM] = (CAM_NAME + "_" + CameraNames[RIGHT_CAM]);
-		output.resolution.width = width;
-		output.resolution.height = height;
-		output.distortion_model = "plumb_bob"; //Hardcoded untill new duo lib compatibility
+		output->camera_name[LEFT_CAM] = (CAM_NAME + "_" + CameraNames[LEFT_CAM]);
+		output->camera_name[RIGHT_CAM] = (CAM_NAME + "_" + CameraNames[RIGHT_CAM]);
+		output->resolution.width = width;
+		output->resolution.height = height;
+		output->distortion_model = "plumb_bob"; //Hardcoded untill new duo lib compatibility
 		for (size_t i = 0; i < 9; i++)
 		{
-			output.camera_matrix[LEFT_CAM].at<double>(i) = input.M1[i];
-			output.camera_matrix[RIGHT_CAM].at<double>(i) = input.M2[i];
+			output->camera_matrix[LEFT_CAM].at<double>(i) = input.M1[i];
+			output->camera_matrix[RIGHT_CAM].at<double>(i) = input.M2[i];
 			//input.R[i]; This is handled as a special case as 0 rotation matrix
-			output.rectification_matrix[LEFT_CAM].at<double>(i) = input.R1[i];
-			output.rectification_matrix[RIGHT_CAM].at<double>(i) = input.R2[i];
+			output->rectification_matrix[LEFT_CAM].at<double>(i) = input.R1[i];
+			output->rectification_matrix[RIGHT_CAM].at<double>(i) = input.R2[i];
 		}
 		//TODO: Learn how to handle translating from 4 <-> 5 distortion coeffecients...
 		// http://docs.opencv.org/master/db/d58/group__calib3d__fisheye.html#gsc.tab=0 Fisheye has 4 ...
 		// http://docs.opencv.org/2.4/doc/tutorials/calib3d/camera_calibration/camera_calibration.html Normal has 5 ...
 		for (size_t i = 0; i < 5; i++)	//Play it safe and assume only 4 exist
 		{
-			output.distortion_coefficients[LEFT_CAM].at<double>(i) = input.D1[i];
-			output.distortion_coefficients[RIGHT_CAM].at<double>(i) = input.D2[i];
+			output->distortion_coefficients[LEFT_CAM].at<double>(i) = input.D1[i];
+			output->distortion_coefficients[RIGHT_CAM].at<double>(i) = input.D2[i];
 		}
 		
 		//P incorporates T in opencv
 		for (size_t i = 0; i < 12; i++)
 		{
-			output.projection_matrix[LEFT_CAM].at<double>(i) = input.P1[i];
-			output.projection_matrix[RIGHT_CAM].at<double>(i) = input.P2[i];
+			output->projection_matrix[LEFT_CAM].at<double>(i) = input.P1[i];
+			output->projection_matrix[RIGHT_CAM].at<double>(i) = input.P2[i];
 		}
 		//Needs to be extracted from openCV's P last colum... //Maybe not.
 //		for (size_t i = 0; i < 3; i++)
 //		{
-//			output.projection_matrix[RIGHT_CAM].at<double>((i * 4) + 3) = input.T[i];
+//			output->projection_matrix[RIGHT_CAM].at<double>((i * 4) + 3) = input.T[i];
 //		}
 	}
 	
