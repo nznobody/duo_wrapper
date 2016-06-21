@@ -60,50 +60,12 @@ namespace duo
 		static const std::string CAM_NAME;
 		class openCVYaml;
 		
-		/*
-		* 	@brief
-		* 	This outside DUO API function ONLY, can access this DUOStereoDriver class 
-		* 	private members since it is listed as a friend to this class. 
-		* 	Be careful when using this. 
-		*/
 		friend void CALLBACK DUOCallback(const PDUOFrame pFrameData, void *pUserData);
 		
-		/*
-		*	@brief
-		*	Singleton Implementation to allow for only a single instance of this
-		*	class. 
-		*	-If GetInstance() is called more then once, it will return a pointer
-		*	 to a already initialize (non-NULL) pSingleton object.
-		*	-If GetInstance() is called for the first time, initialize the pSingleton
-		*	 variable to a new DUOStereoDriver object.  
-		*
-		*	@return
-		*	A pointer to the pSingleton private member object. Must implicitly ensure it is a reference
-		*/
-		static DUOInterface&	GetInstance(void){
-			if (pSingleton == 0L)
-			{
-				pSingleton = new DUOInterface();
-				std::cout << "New Singleton\n";
-			}
-			return *pSingleton;
-		}
-		
-		/*
-		*	@ brief
-		*	Check if pSingleton object is not null, and if it is not null, call the 
-		*	shutdownDUO() function FIRST, and then delete the pSingleton object.	
-		*
-		*/
-		static void	DestroyInstance(void){
-			if (pSingleton != 0L)
-			{
-				pSingleton->shutdownDUO();
-
-				delete pSingleton;
-				pSingleton = NULL;
-				std::cout << "Singleton Deleted\n";
-			}
+		//Impliments singleton instance
+		static std::shared_ptr<DUOInterface>	GetInstance(void){
+			static  std::shared_ptr<DUOInterface> pSingleton = std::make_shared<DUOInterface>();
+			return pSingleton;
 		}
 
 		bool initializeDUO(void);
@@ -176,11 +138,11 @@ namespace duo
 		size_t	_height		= HEIGHT;
 		size_t	_fps		= FPS;
 		int		_binning	= BINNING;
-		char	_duoDeviceName[252];
-		char	_duoDeviceSerialNumber[252];
-		char	_duoDeviceFirmwareVersion[252];
-		char	_duoDeviceFirmwareBuild[252];
-		const DUOLEDSeq _ledSequence[2]; 
+		std::string	_duoDeviceName;
+		std::string	_duoDeviceSerialNumber;
+		std::string	_duoDeviceFirmwareVersion;
+		std::string	_duoDeviceFirmwareBuild;
+		//const DUOLEDSeq _ledSequence[2]; 
 		
 		//Library settings
 		bool	_opencvCalib	= false;	//This indicates if openCV Calib files were found and successfully loaded
@@ -196,9 +158,6 @@ namespace duo
 		bool			_rectInitialised = false;	//Can be checked to see if rectification maps have been created.
 		static const	std::string CameraNames[TWO_CAMERAS]; // = {"left","right"};
 		static			std::mutex _mutex;			//Threading lock used within this class
-		
-		//The single instance of this class
-		static			DUOInterface* pSingleton;	
 		
 		//OpenCV specifics
 		void initRect(const openCVYaml& input);

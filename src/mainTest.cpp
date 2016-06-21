@@ -63,7 +63,7 @@ public:
 	~CallBacker() {}
 	void TestBack(const PDUOFrame pFrameData, void *pUserData)
 	{
-		duo::DUOInterface& _duo = duo::DUOInterface::GetInstance();
+		//std::shared_ptr<duo::DUOInterface> _duo = duo::DUOInterface::GetInstance();
 		std::lock_guard<std::mutex> lk(_imLock);
 		left = cv::Mat(cv::Size(WIDTH, HEIGHT), CV_8UC1, pFrameData->leftData);
 		right = cv::Mat(cv::Size(WIDTH, HEIGHT), CV_8UC1, pFrameData->rightData);
@@ -78,37 +78,37 @@ private:
 
 int main()
 {
-	duo::DUOInterface& _duo = duo::DUOInterface::GetInstance();
+	std::shared_ptr<duo::DUOInterface> _duo = duo::DUOInterface::GetInstance();
 	{ //Test rectification
 		//_duo.SetRectifyOpencv(true);
-		//_duo.SetOpencvCalib(true);
+		//_duo->SetOpencvCalib(true);
 		
 		//Test CUDA
-		_duo.SetUseCUDA(true);
+		_duo->SetUseCUDA(true);
 		
 		//TestHWBackgroundSubtraction
-		//_duo.SetHWBackground(true);
+		//_duo->SetHWBackground(true);
 		
 		//Test openCV Stereo
-		//_duo.SetOpencvStereo(true);
+		//_duo->SetOpencvStereo(true);
 	}
 	
-	if (_duo.initializeDUO())
+	if (_duo->initializeDUO())
 	{
 		{ //Test member callback
 			CallBacker test;
 			auto callbackFram = std::bind(&CallBacker::TestBack, &test, std::placeholders::_1, std::placeholders::_2);
 			duo::DUOInterface::_extcallback = callbackFram;
 		}
-		_duo.SetUseDuoCalib(true);
-		_duo.SetLedPWM(85);
-		_duo.EnableCVSettings();
-		_duo.startDUO();
+		_duo->SetUseDuoCalib(true);
+		_duo->SetLedPWM(85);
+		_duo->EnableCVSettings();
+		_duo->startDUO();
 	}
 
 	//Start thread that shows image
 	std::thread worker(t_imshow);
 	worker.join();
 	
-	_duo.shutdownDUO();
+	_duo->shutdownDUO();
 }

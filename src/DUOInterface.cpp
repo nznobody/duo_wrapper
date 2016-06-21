@@ -13,30 +13,31 @@ namespace duo
 	
 	//Static variables
 	std::mutex DUOInterface::_mutex;
-	DUOInterface* DUOInterface::pSingleton(0L);
 	std::function<void(const PDUOFrame pFrameData, void *pUserData)>	DUOInterface::_extcallback = NULL;
 	
-	DUOInterface::DUOInterface(void) :
-		_ledSequence {{ 100, 100, 100, },{ 0, 0, 0, },}	//One frame all on, one frame all off
+	DUOInterface::DUOInterface(void)
 	{
+		std::cout << "New instance of duo::DUOInterface\n";
 	}
 
 	DUOInterface::~DUOInterface(void)
 	{
-		CloseDUO(_duoInstance);
+		if (_duoInstance)
+			shutdownDUO();
+		std::cout << "Instance of duo::DUOInterface destructed\n";
 	}
 	
 	void CALLBACK DUOCallback(const PDUOFrame pFrameData, void *pUserData)
 	{
 		if (pFrameData == NULL) return;	//Handle this better by restarting the duo maybe?
 		std::lock_guard<std::mutex> lck(DUOInterface::_mutex);
-		DUOInterface& 		_duo 	= DUOInterface::GetInstance(); 	// Using singleton to access DUOInterface, is it needed?
+		std::shared_ptr<DUOInterface> _duo 	= DUOInterface::GetInstance(); 	// Using singleton to access DUOInterface, is it needed?
 		
 		//Check if rectification is needed, should be done outside of callback...
-		if (_duo._rectifyOpencv)
+		if (_duo->_rectifyOpencv)
 		{
 			cv::Mat	r_left, r_right;
-			_duo.rectifyCV(pFrameData, pUserData, r_left, r_right);
+			_duo->rectifyCV(pFrameData, pUserData, r_left, r_right);
 			//Copy back into PDUOFrame, not sure if this is wise..., but works
 			memcpy(pFrameData->leftData, r_left.ptr(0), r_left.rows*r_left.cols*sizeof(uint8_t));
 			memcpy(pFrameData->rightData, r_right.ptr(0), r_right.rows*r_right.cols*sizeof(uint8_t));
@@ -53,12 +54,17 @@ namespace duo
 		if (EnumerateResolutions(&_duoResolutionInfo, 1, _width, _height, _binning, _fps))
 		{
 			// Attempt to open Duo Camera, otherwise error
-			if (OpenDUO(&_duoInstance))
+			if (_duoInstance == NULL && OpenDUO(&_duoInstance))	//To handle non null pointer
 			{
-				GetDUODeviceName(_duoInstance, _duoDeviceName);
-				GetDUOSerialNumber(_duoInstance, _duoDeviceSerialNumber);
-				GetDUOFirmwareVersion(_duoInstance, _duoDeviceFirmwareVersion);
-				GetDUOFirmwareBuild(_duoInstance, _duoDeviceFirmwareBuild);
+				char	buffer[252];
+				GetDUODeviceName(_duoInstance, buffer);
+				_duoDeviceName = buffer;
+				GetDUOSerialNumber(_duoInstance, buffer);
+				_duoDeviceSerialNumber = buffer;
+				GetDUOFirmwareVersion(_duoInstance, buffer);
+				_duoDeviceFirmwareVersion = buffer;
+				GetDUOFirmwareBuild(_duoInstance, buffer);
+				_duoDeviceFirmwareBuild = buffer;
 				SetDUOResolutionInfo(_duoInstance, _duoResolutionInfo);
 
 				//Setup defaults
@@ -509,12 +515,12 @@ namespace duo
 	}
 	
 	void DUOInterface::on_trackbar(int, void*) {
-		DUOInterface&	_duo = DUOInterface::GetInstance();
+		auto	_duo = DUOInterface::GetInstance();
 		//Camera Settings
-		if (_duo._t_gain != _duo._gain){ _duo._gain = _duo._t_gain; _duo.SetGain(_duo._t_gain); }
-		if (_duo._t_exposure != _duo._exposure){ _duo._exposure = _duo._t_exposure; _duo.SetExposure(_duo._t_exposure); }
-		if (_duo._t_leds != _duo._leds){ _duo._leds = _duo._t_leds; _duo.SetLedPWM(_duo._t_leds); }
-		if (_duo._calcDense3D)
+		if (_duo->_t_gain != _duo->_gain){ _duo->_gain = _duo->_t_gain; _duo->SetGain(_duo->_t_gain); }
+		if (_duo->_t_exposure != _duo->_exposure){ _duo->_exposure = _duo->_t_exposure; _duo->SetExposure(_duo->_t_exposure); }
+		if (_duo->_t_leds != _duo->_leds){ _duo->_leds = _duo->_t_leds; _duo->SetLedPWM(_duo->_t_leds); }
+		if (_duo->_calcDense3D)
 		{
 			
 		}
