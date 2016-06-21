@@ -163,7 +163,7 @@ namespace duo
 		
 	protected:
 
-		DUOInstance 		_duoInstance;
+		DUOInstance 		_duoInstance = NULL;	//Fixed an issue with heap vs stack allocaation
 		DUOResolutionInfo 	_duoResolutionInfo;
 		//Duo parameters
 		double	_gain		= GAIN;
