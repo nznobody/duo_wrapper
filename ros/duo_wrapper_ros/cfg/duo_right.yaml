@@ -1,0 +1,30 @@
+%YAML:1.0
+camera_name: duo_right
+image_width: 752
+image_height: 480
+camera_matrix: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 3.9302602400000001e+002, 0., 3.3521631600000001e+002, 0.,
+       3.9220949400000001e+002, 2.4519985800000001e+002, 0., 0., 1. ]
+distortion_coefficients: !!opencv-matrix
+   rows: 1
+   cols: 4
+   dt: d
+   data: [ -1.3284599932238020e-001, 3.7609866033249555e-002,
+       -7.3150863774564229e-002, 3.9163048391638894e-002 ]
+distortion_model: plumb_bob
+rectification_matrix: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 9.9989539579325881e-001, 1.4463660374957422e-002, 0.,
+       -1.4463660374957422e-002, 9.9989539579325881e-001, 0., 0., 0., 1. ]
+projection_matrix: !!opencv-matrix
+   rows: 3
+   cols: 4
+   dt: d
+   data: [ 4.3611134602126134e+002, 0., 4.1786212158203125e+002,
+       -1.3035753238460080e+001, 0., 4.3611134602126134e+002,
+       1.6326376914978027e+002, 0., 0., 0., 1., 0. ]

@@ -51,7 +51,7 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -std=gnu++11")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -std=gnu++11")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -std=gnu++11")
 
-add_library(DuoInterface SHARED src/DUOInterface.cpp)
+add_library(DuoInterface src/DUOInterface.cpp)
 target_link_libraries(DuoInterface "${OpenCV_LIBS}" "${DUOLibNames}" "${LIBRARIES_FROM_REFERENCES}")
 
 if (MSVC) # On windows it seems only this works...

@@ -75,7 +75,7 @@ int main()
 	if (_duo->initializeDUO())
 	{
 		duo::DUOInterface::_extcallback = TestBack;
-		_duo->SetUseDuoCalib(false);
+		_duo->SetUseDuoCalib(true);
 		_duo->SetRectifyOpencv(true);
 		_duo->SetUseCUDA(true);
 		_duo->startDUO();
