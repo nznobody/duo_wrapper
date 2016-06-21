@@ -117,7 +117,6 @@ namespace duo
 		void SetVFlip(bool val){_flipV = val; SetDUOVFlip(_duoInstance, val); }
 		void SetCameraSwap(bool val){_swap = val; SetDUOCameraSwap(_duoInstance, val); }
 		void SetLedPWM(double val){_leds = val; SetDUOLedPWM(_duoInstance, val); }
-		
 		bool ReadYAML(std::string left, std::string right);
 		bool ReadYAMLFromDuo();
 		void WriteCALIB(const openCVYaml& input, std::string prefix);
@@ -135,6 +134,7 @@ namespace duo
 		void SetUseDuoCalib(bool val) { _useDuoCalib = val; }	//Note this has interesting ouput at the moment
 		bool GetUseCUDA() const { return _useCUDA; }
 		void SetUseCUDA(bool val) { _useCUDA = val; }
+		openCVYaml GetCurrentCalib();	//Safe interface to get the calib settings being used. mainly to populate ROS CamInfo MSG
 		
 		//Public variables
 		//Camera characteristics storage (modeled off http://docs.ros.org/api/sensor_msgs/html/msg/CameraInfo.html)

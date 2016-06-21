@@ -67,7 +67,7 @@ public:
 		std::lock_guard<std::mutex> lk(_imLock);
 		left = cv::Mat(cv::Size(WIDTH, HEIGHT), CV_8UC1, pFrameData->leftData);
 		right = cv::Mat(cv::Size(WIDTH, HEIGHT), CV_8UC1, pFrameData->rightData);
-		
+
 		ready = true;
 		
 		_newImg.notify_all();
@@ -105,7 +105,7 @@ int main()
 		_duo.EnableCVSettings();
 		_duo.startDUO();
 	}
-	
+
 	//Start thread that shows image
 	std::thread worker(t_imshow);
 	worker.join();
