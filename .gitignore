@@ -32,6 +32,7 @@ CodeDB
 [Rr]elease/
 [Rr]eleases/
 build
+TX_build
 x64/
 x86/
 bld/
