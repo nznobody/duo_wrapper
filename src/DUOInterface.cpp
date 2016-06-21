@@ -247,8 +247,15 @@ namespace duo
 			fs_l["image_height"] >> _cameraCalibCV.resolution.height;
 			fs_l["distortion_model"] >> _cameraCalibCV.distortion_model;
 			//Parameters
+			//Special case handle for varibale count of D parameters
+			cv::Mat temp_D(cv::Mat::zeros(1, 5, CV_64FC1));
 			fs_l["camera_matrix"] >> _cameraCalibCV.camera_matrix[LEFT_CAM];						//K
-			fs_l["distortion_coefficients"] >> _cameraCalibCV.distortion_coefficients[LEFT_CAM];	//D
+			fs_l["distortion_coefficients"] >> temp_D;												//D
+			temp_D.copyTo(_cameraCalibCV.distortion_coefficients[LEFT_CAM](cv::Rect(0, 0, temp_D.cols, temp_D.rows)));
+			if (temp_D.total() == 4)
+			{
+				_cameraCalibCV.distortion_coefficients[LEFT_CAM].at<double>(4) = 0; //Manually set 5th spot to zero
+			}
 			fs_l["rectification_matrix"] >> _cameraCalibCV.rectification_matrix[LEFT_CAM];			//R
 			fs_l["projection_matrix"] >> _cameraCalibCV.projection_matrix[LEFT_CAM];				//P
 			//TODO: Implement check to see if read properly
@@ -265,10 +272,16 @@ namespace duo
 		{
 			fs_r["camera_name"] >> _cameraCalibCV.camera_name[RIGHT_CAM];
 			//Parameters
-			fs_r["camera_matrix"] >> _cameraCalibCV.camera_matrix[RIGHT_CAM];						//K
-			fs_r["distortion_coefficients"] >> _cameraCalibCV.distortion_coefficients[RIGHT_CAM];	//D
+			cv::Mat temp_D(cv::Mat::zeros(1, 5, CV_64FC1));
+			fs_r["camera_matrix"] >> _cameraCalibCV.camera_matrix[RIGHT_CAM];					//K
+			fs_r["distortion_coefficients"] >> temp_D;											//D
+			temp_D.copyTo(_cameraCalibCV.distortion_coefficients[RIGHT_CAM](cv::Rect(0, 0, temp_D.cols, temp_D.rows)));
+			if (temp_D.total() == 4)
+			{
+				_cameraCalibCV.distortion_coefficients[RIGHT_CAM].at<double>(4) = 0;	//Manually set 5th spot to zero
+			}
 			fs_r["rectification_matrix"] >> _cameraCalibCV.rectification_matrix[RIGHT_CAM];		//R
-			fs_r["projection_matrix"] >> _cameraCalibCV.projection_matrix[RIGHT_CAM];				//P
+			fs_r["projection_matrix"] >> _cameraCalibCV.projection_matrix[RIGHT_CAM];			//P
 			//TODO: Implement check to see if read properly
 			fs_r.release();
 		}
@@ -394,6 +407,13 @@ namespace duo
 		}
 	}
 	
+	DUOInterface::openCVYaml DUOInterface::GetCurrentCalib(){
+		if (_useDuoCalib)
+			return _cameraCalibDuo;
+		else
+			return _cameraCalibCV;
+	}
+	
 	void DUOInterface::calib_cv2duo(const openCVYaml& input, DUO_STEREO& output) {
 		for (size_t i = 0; i < 9; i++)
 		{
@@ -501,3 +521,4 @@ namespace duo
 	}
 	
 }	// end of duo namespace
+
