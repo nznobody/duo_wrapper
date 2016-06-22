@@ -26,6 +26,8 @@
 #include <ostream>
 #include <thread>
 #include <mutex>
+#include <atomic>
+#include <exception>
 #include <condition_variable>
 
 //Duo Includes
@@ -38,3 +40,28 @@
 #include <image_transport/image_transport.h>
 #include <camera_info_manager/camera_info_manager.h>
 #include <cv_bridge/cv_bridge.h>
+
+//Define to control ROS Console output
+#define ROSCONOUT
+
+//Function definitions
+void	yaml2ros(const std::shared_ptr<duo::openCVYaml>	input, std::shared_ptr<sensor_msgs::CameraInfo>	output, bool useRight = false);
+void	runImagePub(const image_transport::CameraPublisher &camPub, 
+	std::shared_ptr<camera_info_manager::CameraInfoManager> camInfo,
+	std::shared_ptr<sensor_msgs::Image> camImg,
+	std::mutex &m,
+	std::condition_variable &cVar,
+	std::atomic_bool &newFrame);
+
+//Boost to STD smart pointers
+template<class T>
+	boost::shared_ptr<T> make_shared_ptr(const std::shared_ptr<T>& ptr)
+	{
+		return boost::shared_ptr<T>(ptr.get(), [ptr](T*) {});
+	}
+
+template<class T>
+	std::shared_ptr<T> make_shared_ptr(const boost::shared_ptr<T>& ptr)
+	{
+		return std::shared_ptr<T>(ptr.get(), [ptr](T*) {});
+	}
