@@ -445,13 +445,13 @@ namespace duo
 		}
 	}
 	
-//	DUOInterface::openCVYaml DUOInterface::GetCurrentCalib(){
-//		if (_useDuoCalib)
-//			return _cameraCalibDuo;
-//		else
-//			return _cameraCalibCV;
-//	}
-//	
+	std::shared_ptr<openCVYaml> DUOInterface::GetCurrentCalib() {
+		if (_useDuoCalib)
+			return _cameraCalibDuo;
+		else
+			return _cameraCalibCV;
+	}
+	
 	void DUOInterface::calib_cv2duo(const std::shared_ptr<openCVYaml> input, DUO_STEREO& output) {
 		for (size_t i = 0; i < 9; i++)
 		{
