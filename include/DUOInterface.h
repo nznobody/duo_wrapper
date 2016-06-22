@@ -113,7 +113,7 @@ namespace duo
 		}
 
 		bool initializeDUO(void);
-		void startDUO(void);
+		bool startDUO(void);
 		void shutdownDUO(void);
 		
 		//Duo parameter functions
@@ -140,7 +140,7 @@ namespace duo
 		void SetUseDuoCalib(bool val) { _useDuoCalib = val; }	//Note this has interesting ouput at the moment
 		bool GetUseCUDA() const { return _useCUDA; }
 		void SetUseCUDA(bool val) { _useCUDA = val; }
-		//openCVYaml GetCurrentCalib();	//Safe interface to get the calib settings being used. mainly to populate ROS CamInfo MSG
+		std::shared_ptr<openCVYaml> GetCurrentCalib();	//Safe interface to get the calib settings being used. mainly to populate ROS CamInfo MSG
 
 		//Public variables
 		//Camera characteristics storage (modeled off http://docs.ros.org/api/sensor_msgs/html/msg/CameraInfo.html)

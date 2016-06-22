@@ -124,7 +124,7 @@ namespace duo
 		return _duoInitialised;
 	}
 	
-	void DUOInterface::startDUO()
+	bool DUOInterface::startDUO()
 	{
 		if (_duoInitialised)
 		{
@@ -146,7 +146,7 @@ namespace duo
 				else
 				{
 					std::cout << "Error, trying to rectify with invalid settings." << std::endl;
-					throw std::logic_error("Invalid calibration Settings");
+					return false;
 				}
 			}
 			else
@@ -157,6 +157,7 @@ namespace duo
 			
 			StartDUO(_duoInstance, DUOCallback, NULL);
 			std::cout <<  "DUO Started." << std::endl;
+			return true;
 		}	
 	}
 
@@ -445,13 +446,13 @@ namespace duo
 		}
 	}
 	
-//	DUOInterface::openCVYaml DUOInterface::GetCurrentCalib(){
-//		if (_useDuoCalib)
-//			return _cameraCalibDuo;
-//		else
-//			return _cameraCalibCV;
-//	}
-//	
+	std::shared_ptr<openCVYaml> DUOInterface::GetCurrentCalib() {
+		if (_useDuoCalib)
+			return _cameraCalibDuo;
+		else
+			return _cameraCalibCV;
+	}
+	
 	void DUOInterface::calib_cv2duo(const std::shared_ptr<openCVYaml> input, DUO_STEREO& output) {
 		for (size_t i = 0; i < 9; i++)
 		{
