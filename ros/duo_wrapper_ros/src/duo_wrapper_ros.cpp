@@ -24,32 +24,50 @@
 
 bool	g_quit = false;	//Every thread checks this for closing time
 std::condition_variable g_cv;
+std::mutex				g_mutex;
+std::atomic_bool		g_newFrame;
+std::shared_ptr<sensor_msgs::Image>	g_camImgL, g_camImgR, g_camImgD;
+
+//ROS Quit handler
+void sigIntHandler(int sig) {
+	ROS_DEBUG("--> SIGINT Handler called <--");
+	ros::shutdown();
+	g_quit = true;
+}
 
 int main(int argc, char *argv[]) {
 	// Setup Section ============================================================
 	//ROS Naming Strings
 	const std::string node_namespace = "duo";
 	const std::string frame_id = "duo_frame";
-	std::string left_topic = node_namespace + "/left";
-	std::string right_topic = node_namespace + "/right";
-	std::string depth_topic = node_namespace + "/depth";
+	std::string left_topic = node_namespace + "/left/image_raw";
+	std::string right_topic = node_namespace + "/right/image_raw";
+	std::string depth_topic = node_namespace + "/depth/image_raw";
+	std::string left_info_topic = node_namespace + "/left/camera_info";
+	std::string right_info_topic = node_namespace + "/right/camera_info";
+	std::string depth_info_topic = node_namespace + "/depth/camera_info";
 	//ROS Setting Varibales - Duo Camera Settings
 	double	_gain = 0.0f;
 	double	_exposure = 80.0f;
 	double	_leds = 20.0f;
 	//ROS Setting Varibales - DuoInterface Library Settings
 	bool	_rectWithOpencv = true;
-	bool	_useDuoCalib = true;	//This should default to true, testing atm
+	bool	_useDuoCalib = false;	//This should default to true, testing atm
 	bool	_useCuda = true;
+	//Thread pool
+	std::vector<std::thread>	tPool;
 	
 	// Init Section =============================================================
 	try
 	{
+		//Register SIGNT Handler
+		signal(SIGINT, sigIntHandler);
+		
 		//Allocate Duo Singleton and initialise
 		std::shared_ptr<duo::DUOInterface>	_duo = duo::DUOInterface::GetInstance();
 		if (_duo->initializeDUO())
 		{
-			//duo::DUOInterface::_extcallback = duoCallBack;
+			duo::DUOInterface::_extcallback = duoCallBack;
 			_duo->SetGain(_gain);
 			_duo->SetExposure(_exposure);
 			_duo->SetLedPWM(_leds);
@@ -60,7 +78,7 @@ int main(int argc, char *argv[]) {
 		else
 			throw std::runtime_error("Couldn't initialise Duo Camera\n");
 		
-		ros::init(argc, argv, "duo_wrapper_ros");	//Init before first NodeHandle creation
+		ros::init(argc, argv, "duo_wrapper_ros", ros::init_options::NoSigintHandler);	//Init before first NodeHandle creation
 	
 		ros::NodeHandle nh;	//Base NodeHandle
 		ros::NodeHandle nh_ns("~");	//Local Namespace NodeHandle
@@ -77,96 +95,138 @@ int main(int argc, char *argv[]) {
 		image_transport::CameraPublisher camPubL = it.advertiseCamera(left_topic, 1);
 		image_transport::CameraPublisher camPubR = it.advertiseCamera(right_topic, 1);
 		image_transport::CameraPublisher camPubD = it.advertiseCamera(depth_topic, 1);
-		std::shared_ptr<camera_info_manager::CameraInfoManager> camInfoManL = std::make_shared<camera_info_manager::CameraInfoManager>(nh);
-		std::shared_ptr<camera_info_manager::CameraInfoManager> camInfoManR = std::make_shared<camera_info_manager::CameraInfoManager>(nh);
-		std::shared_ptr<camera_info_manager::CameraInfoManager> camInfoManD = std::make_shared<camera_info_manager::CameraInfoManager>(nh);
+		std::string testing = camPubL.getInfoTopic();
+		g_camImgL = std::make_shared<sensor_msgs::Image>();	//these have to be global so the callback can access them
+		g_camImgR = std::make_shared<sensor_msgs::Image>();
+		g_camImgD = std::make_shared<sensor_msgs::Image>();
 		std::shared_ptr<sensor_msgs::CameraInfo> camInfoL = std::make_shared<sensor_msgs::CameraInfo>();
 		std::shared_ptr<sensor_msgs::CameraInfo> camInfoR = std::make_shared<sensor_msgs::CameraInfo>();
 		std::shared_ptr<sensor_msgs::CameraInfo> camInfoD = std::make_shared<sensor_msgs::CameraInfo>();
-		std::shared_ptr<sensor_msgs::Image>	camImgL = std::make_shared<sensor_msgs::Image>();
-		std::shared_ptr<sensor_msgs::Image>	camImgR = std::make_shared<sensor_msgs::Image>();
-		std::shared_ptr<sensor_msgs::Image>	camImgD = std::make_shared<sensor_msgs::Image>();
-		//Get CamInfos from DuoInterface. For now Depth info is Left info
-		yaml2ros(_duo->GetCurrentCalib(), camInfoL, false);
-		yaml2ros(_duo->GetCurrentCalib(), camInfoR, true);
-		yaml2ros(_duo->GetCurrentCalib(), camInfoD, false);	//Depth uses left camera
+		yaml2ros(_duo->GetCurrentCalib(), *camInfoL, false);
+		yaml2ros(_duo->GetCurrentCalib(), *camInfoR, true);
+		yaml2ros(_duo->GetCurrentCalib(), *camInfoD, false);	//Depth uses left camera
 		//Set Frame IDs for camInfo
 		camInfoL->header.frame_id = frame_id;
 		camInfoR->header.frame_id = frame_id;
 		camInfoD->header.frame_id = frame_id;
-		//Set camera names
-		camInfoManL->setCameraInfo(*camInfoL.get());	//This is a potential bug. Have to pass underlying pointer. Won't increment counter of ptr
-		camInfoManR->setCameraInfo(*camInfoR.get());	//This is a potential bug. Have to pass underlying pointer. Won't increment counter of ptr
-		camInfoManD->setCameraInfo(*camInfoD.get());	//This is a potential bug. Have to pass underlying pointer. Won't increment counter of ptr
-		camInfoManL->setCameraName("duo_left");	//Hardcoded for now. Will have to get this from calib files. But DuoInterface hard codes this for duo calib anyway
-		camInfoManR->setCameraName("duo_right");
-		camInfoManD->setCameraName("duo_depth");
 		//Setup the image details
-		camImgL->header.frame_id = frame_id;	//Potentially move up to join others
-		camImgR->header.frame_id = frame_id;
-		camImgD->header.frame_id = frame_id;
-		
-		
+		g_camImgL->header.frame_id = frame_id;	//Potentially move up to join others
+		g_camImgR->header.frame_id = frame_id;
+		g_camImgD->header.frame_id = frame_id;
 #ifdef ROSCONOUT
 		ROS_INFO_STREAM("Advertized on topic " << left_topic);
 		ROS_INFO_STREAM("Advertized on topic " << right_topic);
 		ROS_INFO_STREAM("Advertized on topic " << depth_topic);
 #endif // ROSCONOUT
+		
+		//Initialise threads
+		tPool.push_back(std::thread(runImagePub, camPubL, camInfoL, g_camImgL));
+		tPool.push_back(std::thread(runImagePub, camPubR, camInfoR, g_camImgR));
+		tPool.push_back(std::thread(runImagePub, camPubD, camInfoD, g_camImgD));
+		
+		//Start the Duo
+		if(!_duo->startDUO())
+			throw std::runtime_error("Couldn't start Duo Camera\n");
 
 #ifdef ROSCONOUT
 		ROS_INFO("duo_wrapper_ros Node initialized");
 #endif // ROSCONOUT
-	}
-	catch (const std::exception& ex)
-	{
-#ifdef ROSCONOUT
-		ROS_ERROR("duo_wrapper_ros initialisation failed, quitting");
-#endif // ROSCONOUT
-		std::cerr << ex.what() << "\nFatal error" << std::endl;
-		return -1;
-	}
 
+		while (!g_quit && ros::ok())
+		{
+			ros::spin();
+		}
+	}
+	catch (...)
+	{
+		
+	}
+	//Join threads
+	g_quit = true;
+	for (auto &var : tPool)
+	{
+		var.join();
+	}
+#ifdef ROSCONOUT
+	ROS_INFO("duo_wrapper_ros gracefully closed");
+#endif // ROSCONOUT
 	
 	return 0;
 }
 
 //This helper function converts a calibration received from the DuoInterface to ros sensor_msgs::CameraInfo. 
 //The bool defines if it should use input's right info (defaults false, use left)
-void	yaml2ros(const std::shared_ptr<duo::openCVYaml>	input, std::shared_ptr<sensor_msgs::CameraInfo>	output, bool useRight)
+void	yaml2ros(std::shared_ptr<duo::openCVYaml> input, sensor_msgs::CameraInfo	&output, bool useRight)
 {
-	output->height = input->resolution.height;
-	output->width = input->resolution.width;
-	output->distortion_model = input->distortion_model;
+	output.height = input->resolution.height;
+	output.width = input->resolution.width;
+	output.distortion_model = input->distortion_model;
+	output.D.resize(5); //Allocate sizes
+	for (size_t i = 0; i < 12; i++)	//Manually copy, std::copy errors
+	{
+		if (i < 5)
+			output.D[i] = input->distortion_coefficients[useRight].at<double>(i);
+		if (i < 9)
+			output.K[i] = input->camera_matrix[useRight].at<double>(i);
+		if (i < 9)
+			output.R[i] = input->rectification_matrix[useRight].at<double>(i);
+		if (i < 12)
+			output.P[i] = input->projection_matrix[useRight].at<double>(i);
+	}
 	//Use std::copy, be carefull with memory space! Should bound check! Also using a bool as array access is bad!
-	std::copy(input->camera_matrix[useRight].datastart, input->camera_matrix[useRight].dataend, output->K.begin());
-	std::copy(input->distortion_coefficients[useRight].datastart, input->distortion_coefficients[useRight].dataend, output->D.begin());
-	std::copy(input->rectification_matrix[useRight].datastart, input->rectification_matrix[useRight].dataend, output->R.begin());
-	std::copy(input->projection_matrix[useRight].datastart, input->projection_matrix[useRight].dataend, output->P.begin());
+	//std::copy(input.camera_matrix[useRight].datastart, input.camera_matrix[useRight].dataend, output.K.begin());
+	//std::copy(input.distortion_coefficients[useRight].datastart, input.distortion_coefficients[useRight].dataend, output.D.begin());
+	//std::copy(input.rectification_matrix[useRight].datastart, input.rectification_matrix[useRight].dataend, output.R.begin());
+	//std::copy(input.projection_matrix[useRight].datastart, input.projection_matrix[useRight].dataend, output.P.begin());
 	return;
 }
 
 void	runImagePub(const image_transport::CameraPublisher &camPub, 
-	std::shared_ptr<camera_info_manager::CameraInfoManager> camInfo,
-	std::shared_ptr<sensor_msgs::Image> camImg,
-	std::mutex &m,
-	std::condition_variable &cVar,
-	std::atomic_bool &newFrame)
+	std::shared_ptr<sensor_msgs::CameraInfo> camInfo,
+	std::shared_ptr<sensor_msgs::Image> camImg)
 {
 	while (!g_quit)
 	{
 		//Implements thread synchronisation via condition variables and notifies. lock only received after wait
-		std::unique_lock<std::mutex> lk(m);
-		cVar.wait(lk, [&newFrame]{return newFrame.load(std::memory_order_relaxed);}); 
+		//std::unique_lock<std::mutex> lk(g_mutex);
+		//g_cv.wait(lk, []{return g_newFrame.load(std::memory_order_relaxed);}); 
 		//Check for subscribers...
+		std::this_thread::sleep_for(std::chrono::milliseconds(1)); //Sleep so that cpu is saved
+		if (!g_newFrame.load(std::memory_order_relaxed))
+			continue;
 		if (camPub.getNumSubscribers() == 0)
 		{
-			newFrame.store(false, std::memory_order_relaxed);
+			g_newFrame.store(false, std::memory_order_relaxed);
 			continue;
 		}
-		sensor_msgs::CameraInfoPtr	ci(new sensor_msgs::CameraInfo(camInfo->getCameraInfo()));
+		std::lock_guard<std::mutex> lock(g_mutex);
 		//Update ImgHeader timestamp, copy to camInfo
-		camImg->header.stamp = ci->header.stamp = ros::Time::now();
+		camImg->header.stamp = camInfo->header.stamp = ros::Time::now();
 		//Publish	
-		camPub.publish(make_shared_ptr(camImg), ci);
+		camPub.publish(make_shared_ptr(camImg), make_shared_ptr(camInfo));
 	}
+}
+
+void duoCallBack(const PDUOFrame pFrameData, void *pUserData)
+{
+	std::lock_guard<std::mutex> lock(g_mutex);
+	//Copy images to local buffer and return
+	sensor_msgs::fillImage(	*g_camImgL.get(), 								// image reference
+		sensor_msgs::image_encodings::MONO8, 	// type of encoding
+		pFrameData->height, 					// columns in pixels 
+		pFrameData->width,						// rows in pixels
+		pFrameData->width,						// step size 
+		pFrameData->leftData);					// left camera data pointer
+	sensor_msgs::fillImage(	*g_camImgR.get(), 								// image reference
+		sensor_msgs::image_encodings::MONO8, 	// type of encoding
+		pFrameData->height, 					// columns in pixels 
+		pFrameData->width,						// rows in pixels
+		pFrameData->width,						// step size 
+		pFrameData->rightData);					// left camera data pointer
+	//TODO: Depth image
+	//TODO: IMU Data
+	//Set and notify threads
+	g_newFrame.store(true, std::memory_order_relaxed);
+	//g_cv.notify_one();
+	return;
 }

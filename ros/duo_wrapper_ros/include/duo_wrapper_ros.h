@@ -24,10 +24,12 @@
 //System includes
 #include <iostream>
 #include <ostream>
+#include <vector>
 #include <thread>
 #include <mutex>
 #include <atomic>
 #include <exception>
+#include <signal.h>
 #include <condition_variable>
 
 //Duo Includes
@@ -37,21 +39,23 @@
 #include <ros/ros.h>
 #include <ros/console.h>
 #include <sensor_msgs/Image.h>
+#include <sensor_msgs/image_encodings.h>
+#include <sensor_msgs/fill_image.h>
 #include <image_transport/image_transport.h>
 #include <camera_info_manager/camera_info_manager.h>
 #include <cv_bridge/cv_bridge.h>
+
+//Local Includes
 
 //Define to control ROS Console output
 #define ROSCONOUT
 
 //Function definitions
-void	yaml2ros(const std::shared_ptr<duo::openCVYaml>	input, std::shared_ptr<sensor_msgs::CameraInfo>	output, bool useRight = false);
+void	yaml2ros(std::shared_ptr<duo::openCVYaml> input, sensor_msgs::CameraInfo	&output, bool useRight = false);
 void	runImagePub(const image_transport::CameraPublisher &camPub, 
-	std::shared_ptr<camera_info_manager::CameraInfoManager> camInfo,
-	std::shared_ptr<sensor_msgs::Image> camImg,
-	std::mutex &m,
-	std::condition_variable &cVar,
-	std::atomic_bool &newFrame);
+	std::shared_ptr<sensor_msgs::CameraInfo> camInfo,
+	std::shared_ptr<sensor_msgs::Image> camImg);
+void duoCallBack(const PDUOFrame pFrameData, void *pUserData);	//Callback must return ASAP
 
 //Boost to STD smart pointers
 template<class T>
