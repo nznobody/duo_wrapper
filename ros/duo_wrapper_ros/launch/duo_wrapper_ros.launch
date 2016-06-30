@@ -1,0 +1,16 @@
+<launch>
+  
+  
+  <remap from="/duo/imu" to="/imu/data_raw" />
+ <group ns="duo">
+	<node pkg="duo_wrapper_ros" type="duo_wrapper_ros" name="duo_wrapper_ros">
+		<param name="gain" value="0.0"/>
+		<param name="exposure" value="80.0"/>
+		<param name="leds" value="30.0"/>
+		<param name="rectWithOpencv" value="false"/>  
+		<param name="useDuoCalib" value="true"/>
+		<param name="useCuda" value="true"/>
+	</node>
+ </group>
+  
+</launch>

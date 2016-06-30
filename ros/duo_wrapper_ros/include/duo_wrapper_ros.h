@@ -31,6 +31,7 @@
 #include <exception>
 #include <signal.h>
 #include <condition_variable>
+#include <iomanip>      // std::setprecision
 
 //Duo Includes
 #include <DUOInterface.h>
@@ -38,6 +39,7 @@
 //ROS Includes
 #include <ros/ros.h>
 #include <ros/console.h>
+#include <sensor_msgs/Imu.h>
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/image_encodings.h>
 #include <sensor_msgs/fill_image.h>
@@ -49,6 +51,8 @@
 
 //Define to control ROS Console output
 #define ROSCONOUT
+#define GRAVITY	9.80665f
+#define DUO_MAX_G	2
 
 //Function definitions
 void	yaml2ros(std::shared_ptr<duo::openCVYaml> input, sensor_msgs::CameraInfo	&output, bool useRight = false);

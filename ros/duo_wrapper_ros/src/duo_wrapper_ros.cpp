@@ -27,6 +27,8 @@ std::condition_variable g_cv;
 std::mutex				g_mutex;
 std::atomic_bool		g_newFrame;
 std::shared_ptr<sensor_msgs::Image>	g_camImgL, g_camImgR, g_camImgD;
+//Moving pubs to global. Eventually eveything should be encapsulated in a class
+std::shared_ptr<ros::Publisher> g_imuPub;
 
 //ROS Quit handler
 void sigIntHandler(int sig) {
@@ -38,7 +40,7 @@ void sigIntHandler(int sig) {
 int main(int argc, char *argv[]) {
 	// Setup Section ============================================================
 	//ROS Naming Strings
-	const std::string node_namespace = "duo";
+	const std::string node_namespace = "";	//empty due to using namespace in launch file
 	const std::string frame_id = "duo_frame";
 	std::string left_topic = node_namespace + "/left/image_raw";
 	std::string right_topic = node_namespace + "/right/image_raw";
@@ -52,7 +54,7 @@ int main(int argc, char *argv[]) {
 	double	_leds = 20.0f;
 	//ROS Setting Varibales - DuoInterface Library Settings
 	bool	_rectWithOpencv = true;
-	bool	_useDuoCalib = false;	//This should default to true, testing atm
+	bool	_useDuoCalib = true;	//This should default to true, testing atm
 	bool	_useCuda = true;
 	//Thread pool
 	std::vector<std::thread>	tPool;
@@ -95,7 +97,8 @@ int main(int argc, char *argv[]) {
 		image_transport::CameraPublisher camPubL = it.advertiseCamera(left_topic, 1);
 		image_transport::CameraPublisher camPubR = it.advertiseCamera(right_topic, 1);
 		image_transport::CameraPublisher camPubD = it.advertiseCamera(depth_topic, 1);
-		std::string testing = camPubL.getInfoTopic();
+		g_imuPub = std::make_shared<ros::Publisher>(nh.advertise<sensor_msgs::Imu>("imu", 10));	//Setting up basic IMU and TEMP Pubs
+		//std::shared_ptr<ros::Publisher> tempPub = std::make_shared<ros::Publisher>(nh.advertise<sensor_msgs::Imu>("imu", 10));
 		g_camImgL = std::make_shared<sensor_msgs::Image>();	//these have to be global so the callback can access them
 		g_camImgR = std::make_shared<sensor_msgs::Image>();
 		g_camImgD = std::make_shared<sensor_msgs::Image>();
@@ -143,10 +146,10 @@ int main(int argc, char *argv[]) {
 	}
 	//Join threads
 	g_quit = true;
-	for (auto &var : tPool)
-	{
-		var.join();
-	}
+//	for (auto &var : tPool)
+//	{
+//		var.join();
+//	}
 #ifdef ROSCONOUT
 	ROS_INFO("duo_wrapper_ros gracefully closed");
 #endif // ROSCONOUT
@@ -225,6 +228,37 @@ void duoCallBack(const PDUOFrame pFrameData, void *pUserData)
 		pFrameData->rightData);					// left camera data pointer
 	//TODO: Depth image
 	//TODO: IMU Data
+	if (pFrameData->IMUPresent)
+	{
+		ros::Time lastFrame = ros::Time::now();
+		float x, y, z, lx, ly, lz;
+		//Calc time constants needed
+		//uint32_t maxTimeDiff = pFrameData->IMUData[pFrameData->IMUSamples].timeStamp - pFrameData->IMUData[0].timeStamp;	//This is time between first and last frame in 100usecs
+		for (size_t imuCounter = 0; imuCounter < pFrameData->IMUSamples; imuCounter++)
+		{
+			sensor_msgs::ImuPtr imuData(new sensor_msgs::Imu);
+			//The time calculation is tricky. We assume that we can basically count backwards from now()
+			ros::Duration step((1.e-4)*(pFrameData->IMUSamples - (imuCounter+1)));
+			imuData->header.stamp = lastFrame - step;
+			imuData->header.frame_id = "duo_imu_frame";
+
+					//imuData->orientation.x;	//TODO: Deal with this not being present...
+			//Note that the duo uses units g's for acceleration and degs/sec (TBC) for rotation
+			//https://duo3d.com/docs/articles/#DUOAccelRangeLink
+			
+			imuData->angular_velocity.x = x = pFrameData->IMUData[imuCounter].gyroData[2];
+			imuData->angular_velocity.y = y = -pFrameData->IMUData[imuCounter].gyroData[0];
+			imuData->angular_velocity.z = z = pFrameData->IMUData[imuCounter].gyroData[1];
+
+			imuData->linear_acceleration.x = lx = -pFrameData->IMUData[imuCounter].accelData[2] * GRAVITY * DUO_MAX_G;
+			imuData->linear_acceleration.y = ly = -pFrameData->IMUData[imuCounter].accelData[0] * GRAVITY * DUO_MAX_G;
+			imuData->linear_acceleration.z = lz = pFrameData->IMUData[imuCounter].accelData[1] * GRAVITY * DUO_MAX_G;	//Fixing for Duo's frame orientation and scale
+		
+			g_imuPub->publish(imuData);
+		}
+		//std::cout.width(10);
+		std::cout << std::setprecision(4) << std::setw(10) << x << " " << std::setw(10) << y << " " << std::setw(10) << z << " || " << std::setw(10) << lx << " " << std::setw(10) << ly << " " << std::setw(10) << lz << std::endl;
+	}
 	//Set and notify threads
 	g_newFrame.store(true, std::memory_order_relaxed);
 	//g_cv.notify_one();
